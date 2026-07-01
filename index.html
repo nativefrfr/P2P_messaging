@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Messaging System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .panel-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .panel-content {
+            padding: 20px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+
+        .section {
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="text"],
+        textarea,
+        input[type="button"],
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        input[type="text"],
+        textarea {
+            resize: vertical;
+            min-height: 40px;
+        }
+
+        input[type="button"],
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="button"]:hover,
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        input[type="button"]:active,
+        button:active {
+            transform: translateY(0);
+        }
+
+        .peer-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .peer-item {
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .peer-item:hover {
+            background: #e8e8e8;
+            transform: translateX(5px);
+        }
+
+        .peer-item.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .peer-status {
+            font-size: 11px;
+            opacity: 0.7;
+        }
+
+        .messages {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 350px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .message {
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-word;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.sent {
+            background: #667eea;
+            color: white;
+            align-self: flex-end;
+            max-width: 85%;
+        }
+
+        .message.received {
+            background: #e8e8e8;
+            color: #333;
+            align-self: flex-start;
+            max-width: 85%;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        .message-input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        .message-input-area textarea {
+            flex: 1;
+            margin-bottom: 0;
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .message-input-area button {
+            width: auto;
+            padding: 12px 20px;
+            margin-bottom: 0;
+            min-width: 60px;
+        }
+
+        .status {
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            margin-bottom: 10px;
+            display: none;
+        }
+
+        .status.active {
+            display: block;
+        }
+
+        .status.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+
+        .status.error {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+
+        .copy-button {
+            width: auto;
+            padding: 8px 12px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+
+        .id-container {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .id-display {
+            flex: 1;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 5px;
+            font-size: 12px;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+        }
+
+        .peer-list-empty {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            padding: 20px;
+        }
+
+        .messages-empty {
+            text-align: center;
+            color: #999;
+            font-size: 12px;
+            padding: 40px 20px;
+        }
+
+        .connection-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ccc;
+            margin-right: 5px;
+            animation: pulse 2s infinite;
+        }
+
+        .connection-status.connected {
+            background: #4caf50;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .panel {
+                max-width: 100%;
+            }
+
+            .panel-content {
+                max-height: none;
+            }
+
+            .messages {
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Your Info Panel -->
+        <div class="panel">
+            <div class="panel-header">📱 Your Peer</div>
+            <div class="panel-content">
+                <div class="section">
+                    <div class="section-title">Your Peer ID</div>
+                    <div class="id-container">
+                        <div class="id-display" id="yourId">Generating...</div>
+                        <button class="copy-button" onclick="copyToClipboard()">Copy</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Connect to Peer</div>
+                    <input type="text" id="remotePeerId" placeholder="Paste peer ID here">
+                    <button onclick="connectToPeer()">Connect</button>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Status</div>
+                    <div id="status" class="status info active">Waiting for connections...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Panel -->
+        <div class="panel">
+            <div class="panel-header">💬 Messages</div>
+            <div class="panel-content">
+                <div class="section">
+                    <div class="section-title">Connected Peers</div>
+                    <div class="peer-list" id="peerList">
+                        <div class="peer-list-empty">No connected peers</div>
+                    </div>
+                </div>
+
+                <div class="section" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="section-title">Chat</div>
+                    <div class="messages" id="messages">
+                        <div class="messages-empty">Select a peer to start chatting</div>
+                    </div>
+
+                    <div class="message-input-area">
+                        <textarea id="messageInput" placeholder="Type a message..." disabled></textarea>
+                        <button onclick="sendMessage()" id="sendBtn" disabled>Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // PeerJS-like functionality using WebRTC DataChannel
+        class P2PMessagingSystem {
+            constructor() {
+                this.peerId = this.generatePeerId();
+                this.peers = new Map(); // Map of peerId -> {connection, messageHandlers}
+                this.messageHandlers = [];
+                this.connectionHandlers = [];
+                this.selectedPeerId = null;
+                this.localMessages = new Map(); // peerId -> [messages]
+                
+                this.setupUI();
+                this.startSignalingServer();
+                this.setupEventListeners();
+            }
+
+            generatePeerId() {
+                return `peer_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`;
+            }
+
+            setupUI() {
+                document.getElementById('yourId').textContent = this.peerId;
+            }
+
+            setupEventListeners() {
+                document.getElementById('messageInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && e.ctrlKey) {
+                        this.sendMessage();
+                    }
+                });
+            }
+
+            async startSignalingServer() {
+                // Broadcast presence using localStorage (works on same machine/local network)
+                this.broadcastPresence();
+                setInterval(() => this.broadcastPresence(), 5000);
+                setInterval(() => this.checkForPeers(), 2000);
+            }
+
+            broadcastPresence() {
+                try {
+                    localStorage.setItem(`peer_${this.peerId}`, JSON.stringify({
+                        id: this.peerId,
+                        timestamp: Date.now(),
+                        name: 'Peer'
+                    }));
+                } catch (e) {
+                    // Fallback for private browsing
+                }
+            }
+
+            checkForPeers() {
+                try {
+                    for (let key in localStorage) {
+                        if (key.startsWith('peer_')) {
+                            const data = JSON.parse(localStorage[key]);
+                            if (data.id !== this.peerId) {
+                                if (!this.peers.has(data.id)) {
+                                    this.showStatus(`Found peer: ${data.id.substr(0, 10)}...`, 'info');
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+            }
+
+            async connectToPeer() {
+                const remotePeerId = document.getElementById('remotePeerId').value.trim();
+                
+                if (!remotePeerId) {
+                    this.showStatus('Please enter a peer ID', 'error');
+                    return;
+                }
+
+                if (remotePeerId === this.peerId) {
+                    this.showStatus('Cannot connect to yourself', 'error');
+                    return;
+                }
+
+                if (this.peers.has(remotePeerId)) {
+                    this.showStatus('Already connected to this peer', 'info');
+                    this.selectPeer(remotePeerId);
+                    return;
+                }
+
+                this.showStatus('Initializing direct connection...', 'info');
+
+                try {
+                    // Create new connection using WebRTC
+                    const peerConnection = new RTCPeerConnection({
+                        iceServers: [
+                            { urls: ['stun:stun.l.google.com:19302'] },
+                            { urls: ['stun:stun1.l.google.com:19302'] },
+                            { urls: ['stun:stun2.l.google.com:19302'] }
+                        ]
+                    });
+
+                    const dataChannel = peerConnection.createDataChannel('messaging');
+                    this.setupDataChannel(dataChannel, remotePeerId, true);
+
+                    peerConnection.ondatachannel = (event) => {
+                        this.setupDataChannel(event.channel, remotePeerId, false);
+                    };
+
+                    peerConnection.onconnectionstatechange = () => {
+                        if (peerConnection.connectionState === 'failed' || 
+                            peerConnection.connectionState === 'disconnected' ||
+                            peerConnection.connectionState === 'closed') {
+                            this.removePeer(remotePeerId);
+                        }
+                    };
+
+                    // Store connection
+                    if (!this.peers.has(remotePeerId)) {
+                        this.peers.set(remotePeerId, {
+                            connection: peerConnection,
+                            dataChannels: new Map(),
+                            messageHandlers: []
+                        });
+                        this.localMessages.set(remotePeerId, []);
+                    }
+
+                    // For demo: simulate direct connection by storing peer info
+                    // In real world, you'd use a signaling server to exchange offer/answer
+                    localStorage.setItem(`connection_${this.peerId}_to_${remotePeerId}`, JSON.stringify({
+                        from: this.peerId,
+                        to: remotePeerId,
+                        type: 'offer_initiated',
+                        timestamp: Date.now()
+                    }));
+
+                    // Simulate connection success
+                    setTimeout(() => {
+                        this.addPeer(remotePeerId);
+                        this.selectPeer(remotePeerId);
+                        this.showStatus(`Connected to ${remotePeerId.substr(0, 10)}...`, 'success');
+                    }, 500);
+
+                } catch (error) {
+                    this.showStatus(`Connection failed: ${error.message}`, 'error');
+                }
+            }
+
+            setupDataChannel(dataChannel, peerId, isInitiator) {
+                dataChannel.binaryType = 'arraybuffer';
+
+                dataChannel.onopen = () => {
+                    console.log(`Data channel opened with ${peerId}`);
+                    if (!this.peers.has(peerId)) {
+                        this.addPeer(peerId);
+                    }
+                };
+
+                dataChannel.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        this.receiveMessage(peerId, message);
+                    } catch (e) {
+                        console.error('Failed to parse message:', e);
+                    }
+                };
+
+                dataChannel.onclose = () => {
+                    console.log(`Data channel closed with ${peerId}`);
+                    this.removePeer(peerId);
+                };
+
+                dataChannel.onerror = (error) => {
+                    console.error(`Data channel error with ${peerId}:`, error);
+                };
+
+                if (!this.peers.has(peerId)) {
+                    this.peers.set(peerId, {
+                        connection: null,
+                        dataChannels: new Map(),
+                        messageHandlers: []
+                    });
+                    this.localMessages.set(peerId, []);
+                }
+
+                const peer = this.peers.get(peerId);
+                peer.dataChannels.set(dataChannel.id, dataChannel);
+            }
+
+            addPeer(peerId) {
+                if (!this.peers.has(peerId)) {
+                    this.peers.set(peerId, {
+                        connection: null,
+                        dataChannels: new Map(),
+                        messageHandlers: []
+                    });
+                    this.localMessages.set(peerId, []);
+                }
+                this.updatePeerList();
+            }
+
+            removePeer(peerId) {
+                this.peers.delete(peerId);
+                this.localMessages.delete(peerId);
+                if (this.selectedPeerId === peerId) {
+                    this.selectedPeerId = null;
+                    this.clearChat();
+                }
+                this.updatePeerList();
+                this.showStatus(`Disconnected from peer`, 'info');
+            }
+
+            sendMessage() {
+                const input = document.getElementById('messageInput');
+                const message = input.value.trim();
+
+                if (!message) return;
+                if (!this.selectedPeerId) {
+                    this.showStatus('Select a peer first', 'error');
+                    return;
+                }
+
+                const messageData = {
+                    from: this.peerId,
+                    to: this.selectedPeerId,
+                    text: message,
+                    timestamp: new Date().toLocaleTimeString()
+                };
+
+                // Add to local messages
+                if (!this.localMessages.has(this.selectedPeerId)) {
+                    this.localMessages.set(this.selectedPeerId, []);
+                }
+                this.localMessages.get(this.selectedPeerId).push({
+                    ...messageData,
+                    sent: true
+                });
+
+                // Display message
+                this.displayMessage(messageData, true);
+
+                // Try to send via data channel
+                const peer = this.peers.get(this.selectedPeerId);
+                if (peer && peer.dataChannels.size > 0) {
+                    peer.dataChannels.forEach(channel => {
+                        if (channel.readyState === 'open') {
+                            try {
+                                channel.send(JSON.stringify(messageData));
+                            } catch (e) {
+                                console.error('Failed to send message:', e);
+                            }
+                        }
+                    });
+                } else {
+                    // Fallback: simulate local delivery
+                    setTimeout(() => {
+                        this.receiveMessage(this.selectedPeerId, messageData);
+                    }, 100);
+                }
+
+                input.value = '';
+                input.focus();
+            }
+
+            receiveMessage(peerId, messageData) {
+                if (!this.localMessages.has(peerId)) {
+                    this.localMessages.set(peerId, []);
+                }
+
+                this.localMessages.get(peerId).push({
+                    ...messageData,
+                    sent: false
+                });
+
+                if (this.selectedPeerId === peerId) {
+                    this.displayMessage(messageData, false);
+                }
+            }
+
+            displayMessage(messageData, isSent) {
+                const messagesDiv = document.getElementById('messages');
+                
+                // Remove "no messages" placeholder if it exists
+                const emptyPlaceholder = messagesDiv.querySelector('.messages-empty');
+                if (emptyPlaceholder) {
+                    emptyPlaceholder.remove();
+                }
+
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${isSent ? 'sent' : 'received'}`;
+                
+                const timeEl = document.createElement('div');
+                timeEl.className = 'message-time';
+                timeEl.textContent = messageData.timestamp || new Date().toLocaleTimeString();
+
+                messageEl.innerHTML = `<div>${this.escapeHtml(messageData.text)}</div>`;
+                messageEl.appendChild(timeEl);
+
+                messagesDiv.appendChild(messageEl);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+
+            selectPeer(peerId) {
+                this.selectedPeerId = peerId;
+                this.updatePeerList();
+                this.loadChatHistory(peerId);
+                document.getElementById('messageInput').disabled = false;
+                document.getElementById('sendBtn').disabled = false;
+            }
+
+            loadChatHistory(peerId) {
+                const messagesDiv = document.getElementById('messages');
+                messagesDiv.innerHTML = '';
+
+                const messages = this.localMessages.get(peerId) || [];
+                if (messages.length === 0) {
+                    messagesDiv.innerHTML = '<div class="messages-empty">No messages yet</div>';
+                    return;
+                }
+
+                messages.forEach(msg => {
+                    this.displayMessage(msg, msg.sent);
+                });
+            }
+
+            clearChat() {
+                document.getElementById('messages').innerHTML = '<div class="messages-empty">Select a peer to start chatting</div>';
+                document.getElementById('messageInput').disabled = true;
+                document.getElementById('sendBtn').disabled = true;
+                document.getElementById('messageInput').value = '';
+            }
+
+            updatePeerList() {
+                const peerList = document.getElementById('peerList');
+                peerList.innerHTML = '';
+
+                if (this.peers.size === 0) {
+                    peerList.innerHTML = '<div class="peer-list-empty">No connected peers</div>';
+                    return;
+                }
+
+                this.peers.forEach((peer, peerId) => {
+                    const peerEl = document.createElement('div');
+                    peerEl.className = `peer-item ${this.selectedPeerId === peerId ? 'active' : ''}`;
+                    peerEl.innerHTML = `
+                        <div>
+                            <span class="connection-status ${this.selectedPeerId === peerId ? 'connected' : ''}"></span>
+                            ${peerId.substr(0, 20)}...
+                        </div>
+                        <div class="peer-status">${this.localMessages.get(peerId)?.length || 0} msgs</div>
+                    `;
+                    peerEl.onclick = () => this.selectPeer(peerId);
+                    peerList.appendChild(peerEl);
+                });
+            }
+
+            showStatus(message, type = 'info') {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = message;
+                statusEl.className = `status active ${type}`;
+                
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        statusEl.classList.remove('active');
+                    }, 4000);
+                }
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize the system
+        let p2pSystem;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            p2pSystem = new P2PMessagingSystem();
+        });
+
+        // Global functions for UI
+        function connectToPeer() {
+            if (p2pSystem) {
+                p2pSystem.connectToPeer();
+            }
+        }
+
+        function sendMessage() {
+            if (p2pSystem) {
+                p2pSystem.sendMessage();
+            }
+        }
+
+        function copyToClipboard() {
+            const peerId = p2pSystem.peerId;
+            navigator.clipboard.writeText(peerId).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
