@@ -89,12 +89,6 @@
             background: #2563eb;
         }
 
-        .username-edit {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
         .username-display {
             background: #0f172a;
             border: 1px solid #334155;
@@ -164,6 +158,45 @@
             background: #059669;
         }
 
+        .connect-input {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .connect-input input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-family: inherit;
+        }
+
+        .connect-input input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .connect-input button {
+            background: #3b82f6;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: background 0.2s;
+        }
+
+        .connect-input button:hover {
+            background: #2563eb;
+        }
+
         .peer-list {
             display: flex;
             flex-direction: column;
@@ -225,59 +258,6 @@
             color: #64748b;
             padding: 40px 20px;
             font-size: 13px;
-        }
-
-        .connection-request {
-            background: #1f2937;
-            border: 2px solid #f59e0b;
-            border-radius: 10px;
-            padding: 16px;
-            margin-bottom: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .request-text {
-            font-size: 14px;
-            color: #fbbf24;
-        }
-
-        .request-buttons {
-            display: flex;
-            gap: 8px;
-        }
-
-        .btn-allow {
-            flex: 1;
-            background: #10b981;
-            border: none;
-            color: white;
-            padding: 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-
-        .btn-allow:hover {
-            background: #059669;
-        }
-
-        .btn-deny {
-            flex: 1;
-            background: #ef4444;
-            border: none;
-            color: white;
-            padding: 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-
-        .btn-deny:hover {
-            background: #dc2626;
         }
 
         .chat-area {
@@ -528,15 +508,18 @@
                 </div>
             </div>
 
-            <div class="section" id="requestsSection" style="display: none;">
-                <div class="section-title">Connection Requests</div>
-                <div id="requestsList"></div>
+            <div class="section">
+                <div class="section-title">Connect to Peer</div>
+                <div class="connect-input">
+                    <input type="text" id="remotePeerId" placeholder="Paste peer ID here">
+                    <button onclick="p2p.connectToPeerId()">Connect</button>
+                </div>
             </div>
 
             <div class="section">
-                <div class="section-title">Online Peers</div>
+                <div class="section-title">Connected Peers</div>
                 <div class="peer-list" id="peerList">
-                    <div class="peer-list-empty">Scanning for peers...</div>
+                    <div class="peer-list-empty">No peers connected</div>
                 </div>
             </div>
         </div>
@@ -559,7 +542,6 @@
                 this.peers = new Map();
                 this.conversations = new Map();
                 this.activePeer = null;
-                this.messageCheckInterval = null;
                 
                 this.init();
             }
@@ -584,8 +566,8 @@
                         document.getElementById('usernameDisplay').textContent = this.username;
                         document.getElementById('usernameInput').value = this.username;
                         this.updateStatus('connected');
-                        this.broadcast();
-                        setInterval(() => this.broadcast(), 10000);
+                        this.broadcastPresence();
+                        setInterval(() => this.broadcastPresence(), 15000);
                     });
 
                     this.peer.on('connection', (conn) => {
@@ -616,9 +598,9 @@
                 }
             }
 
-            broadcast() {
+            broadcastPresence() {
                 try {
-                    localStorage.setItem(`peer_broadcast_${this.peerId}`, JSON.stringify({
+                    localStorage.setItem(`p2p_peer_${this.peerId}`, JSON.stringify({
                         id: this.peerId,
                         username: this.username,
                         timestamp: Date.now()
@@ -653,9 +635,8 @@
                 document.getElementById('usernameDisplay').textContent = this.username;
                 
                 this.toggleUsernameEdit();
-                this.broadcast();
+                this.broadcastPresence();
                 
-                // Notify all connected peers of username change
                 this.connections.forEach(conn => {
                     try {
                         conn.send({ type: 'username_update', username: this.username });
@@ -663,8 +644,29 @@
                 });
             }
 
-            connectToPeer(remotePeerId) {
-                if (this.activePeer === remotePeerId) return;
+            connectToPeerId() {
+                const remotePeerId = document.getElementById('remotePeerId').value.trim();
+                
+                if (!remotePeerId) {
+                    alert('Please enter a peer ID');
+                    return;
+                }
+
+                if (remotePeerId === this.peerId) {
+                    alert('Cannot connect to yourself');
+                    return;
+                }
+
+                if (this.connections.has(remotePeerId)) {
+                    alert('Already connected to this peer');
+                    return;
+                }
+
+                this.initiateConnection(remotePeerId);
+                document.getElementById('remotePeerId').value = '';
+            }
+
+            initiateConnection(remotePeerId) {
                 if (this.connections.has(remotePeerId)) return;
 
                 const conn = this.peer.connect(remotePeerId, { reliable: true });
@@ -673,6 +675,7 @@
 
             handleOutgoingConnection(conn, remotePeerId) {
                 conn.on('open', () => {
+                    console.log('Connected to', remotePeerId);
                     conn.send({
                         type: 'intro',
                         peerId: this.peerId,
@@ -680,7 +683,8 @@
                     });
 
                     this.connections.set(remotePeerId, conn);
-                    this.activatePeerConnection(remotePeerId);
+                    this.peers.set(remotePeerId, { username: 'Peer', connected: true });
+                    this.updatePeerList();
                 });
 
                 conn.on('data', (data) => {
@@ -688,6 +692,7 @@
                 });
 
                 conn.on('close', () => {
+                    console.log('Disconnected from', remotePeerId);
                     this.connections.delete(remotePeerId);
                     if (this.activePeer === remotePeerId) {
                         this.activePeer = null;
@@ -699,23 +704,25 @@
                 conn.on('error', (err) => {
                     console.error('Connection error:', err);
                     this.connections.delete(remotePeerId);
+                    alert('Failed to connect to peer. Make sure the ID is correct.');
                 });
             }
 
             handleIncomingConnection(conn) {
+                const remotePeerId = conn.peer;
+
+                conn.on('open', () => {
+                    console.log('Incoming connection from', remotePeerId);
+                });
+
                 conn.on('data', (data) => {
                     if (data.type === 'intro') {
-                        const remotePeerId = data.peerId;
                         this.connections.set(remotePeerId, conn);
-                        
-                        if (!this.peers.has(remotePeerId)) {
-                            this.peers.set(remotePeerId, {
-                                username: data.username || 'Anonymous',
-                                connected: true
-                            });
-                        }
+                        this.peers.set(remotePeerId, {
+                            username: data.username || 'Peer',
+                            connected: true
+                        });
 
-                        // Send acknowledgement
                         conn.send({
                             type: 'ack',
                             username: this.username
@@ -723,25 +730,28 @@
 
                         this.updatePeerList();
                     } else if (data.type === 'ack') {
-                        const remotePeerId = conn.peerConnection?.remoteDescription?.sdp ? 
-                            Object.keys(this.connections).find(k => this.connections.get(k) === conn) : null;
-                        if (remotePeerId && this.peers.has(remotePeerId)) {
-                            this.peers.get(remotePeerId).username = data.username || 'Anonymous';
+                        const peerData = this.peers.get(remotePeerId);
+                        if (peerData) {
+                            peerData.username = data.username || 'Peer';
                             this.updatePeerList();
                         }
                     } else {
-                        this.handleMessage(data, conn.peer);
+                        this.handleMessage(data, remotePeerId);
                     }
                 });
 
                 conn.on('close', () => {
-                    const peerId = conn.peer;
-                    this.connections.delete(peerId);
-                    if (this.activePeer === peerId) {
+                    console.log('Disconnected from', remotePeerId);
+                    this.connections.delete(remotePeerId);
+                    if (this.activePeer === remotePeerId) {
                         this.activePeer = null;
                         this.renderChat();
                     }
                     this.updatePeerList();
+                });
+
+                conn.on('error', (err) => {
+                    console.error('Incoming connection error:', err);
                 });
             }
 
@@ -775,10 +785,7 @@
                 }
             }
 
-            activatePeerConnection(remotePeerId) {
-                if (!this.conversations.has(remotePeerId)) {
-                    this.conversations.set(remotePeerId, { messages: [] });
-                }
+            selectPeer(remotePeerId) {
                 this.activePeer = remotePeerId;
                 this.updatePeerList();
                 this.renderChat();
@@ -786,7 +793,10 @@
 
             sendMessage(text) {
                 if (!this.activePeer || !text.trim()) return;
-                if (!this.connections.has(this.activePeer)) return;
+                if (!this.connections.has(this.activePeer)) {
+                    alert('Not connected to this peer');
+                    return;
+                }
 
                 const message = {
                     type: 'message',
@@ -812,6 +822,7 @@
                     this.connections.get(this.activePeer).send(message);
                 } catch (e) {
                     console.error('Failed to send message:', e);
+                    alert('Failed to send message');
                 }
 
                 this.renderChat();
@@ -823,6 +834,7 @@
                     this.connections.delete(this.activePeer);
                     this.activePeer = null;
                     this.renderChat();
+                    this.updatePeerList();
                 }
             }
 
@@ -842,7 +854,7 @@
                     const isActive = this.activePeer === peerId;
                     
                     return `
-                        <div class="peer-item ${isActive ? 'peer-item-active' : ''}" onclick="p2p.connectToPeer('${peerId}'); p2p.activatePeerConnection('${peerId}')">
+                        <div class="peer-item ${isActive ? 'peer-item-active' : ''}" onclick="p2p.selectPeer('${peerId}')">
                             <div class="peer-info">
                                 <div class="peer-name">${this.escapeHtml(data.username)}</div>
                                 <div class="peer-status">Connected</div>
@@ -922,10 +934,16 @@
 
         function copyToClipboard() {
             const text = p2p.peerId;
+            if (!text) {
+                alert('Peer ID not ready yet');
+                return;
+            }
             navigator.clipboard.writeText(text).then(() => {
                 const btn = event.target;
                 btn.textContent = 'Copied!';
                 setTimeout(() => btn.textContent = 'Copy', 2000);
+            }).catch(() => {
+                alert('Failed to copy: ' + text);
             });
         }
     </script>
