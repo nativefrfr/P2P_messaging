@@ -148,6 +148,7 @@
             text-align: center;
             color: #64748b;
             padding: 40px 20px;
+            font-size: 13px;
         }
 
         .connection-request {
@@ -409,7 +410,7 @@
 
             <div class="section">
                 <div class="section-title">Online Peers</div>
-                <div class="peer-list scrollbar" id="peerList">
+                <div class="peer-list" id="peerList">
                     <div class="peer-list-empty">Scanning for peers...</div>
                 </div>
             </div>
@@ -427,10 +428,12 @@
         class P2PMessaging {
             constructor() {
                 this.peerId = this.generatePeerId();
-                this.peers = new Map(); // peerId -> { lastSeen, active }
-                this.conversations = new Map(); // peerId -> { messages: [], connected: false }
-                this.connectionRequests = new Map(); // peerId -> { name, timestamp }
+                this.peers = new Map();
+                this.conversations = new Map();
+                this.connectionRequests = new Map();
                 this.activePeer = null;
+                this.lastMessageCheckTime = {};
+                this.messageCheckInterval = null;
                 
                 this.init();
             }
@@ -442,9 +445,9 @@
             init() {
                 document.getElementById('yourId').textContent = this.peerId;
                 this.broadcast();
-                setInterval(() => this.broadcast(), 3000);
-                setInterval(() => this.scanForPeers(), 1000);
-                setInterval(() => this.cleanup(), 5000);
+                setInterval(() => this.broadcast(), 5000);
+                setInterval(() => this.scanForPeers(), 3000);
+                setInterval(() => this.cleanup(), 8000);
                 this.setupUI();
             }
 
@@ -460,12 +463,17 @@
             scanForPeers() {
                 try {
                     for (let key in localStorage) {
-                        if (key.startsWith('peer_')) {
-                            const data = JSON.parse(localStorage[key]);
-                            if (data.id !== this.peerId && !this.peers.has(data.id)) {
-                                this.peers.set(data.id, { lastSeen: Date.now(), active: true });
-                                this.checkForConnectionRequest(data.id);
-                            }
+                        if (key.startsWith('peer_') && !key.includes('_to_')) {
+                            try {
+                                const data = JSON.parse(localStorage[key]);
+                                if (data.id && data.id !== this.peerId && !this.peers.has(data.id)) {
+                                    const age = Date.now() - data.timestamp;
+                                    if (age < 10000) { // Only add if less than 10 seconds old
+                                        this.peers.set(data.id, { lastSeen: Date.now(), active: true });
+                                        this.checkForConnectionRequest(data.id);
+                                    }
+                                }
+                            } catch (e) {}
                         }
                     }
                     this.updatePeerList();
@@ -493,7 +501,6 @@
                         status: 'pending'
                     }));
 
-                    // Wait for acceptance
                     const checkInterval = setInterval(() => {
                         try {
                             const key = `accept_${peerId}_to_${this.peerId}`;
@@ -506,9 +513,9 @@
                                 }
                             }
                         } catch (e) {}
-                    }, 100);
+                    }, 200);
 
-                    setTimeout(() => clearInterval(checkInterval), 30000); // 30 second timeout
+                    setTimeout(() => clearInterval(checkInterval), 30000);
                 } catch (e) {}
             }
 
@@ -538,10 +545,12 @@
             activatePeerConnection(peerId) {
                 if (!this.conversations.has(peerId)) {
                     this.conversations.set(peerId, { messages: [], connected: true });
+                    this.lastMessageCheckTime[peerId] = 0;
                 }
                 this.activePeer = peerId;
                 this.updatePeerList();
                 this.renderChat();
+                this.startMessagePolling();
             }
 
             disconnect() {
@@ -551,6 +560,10 @@
                         localStorage.removeItem(`connection_${this.activePeer}_to_${this.peerId}`);
                     } catch (e) {}
                     this.activePeer = null;
+                    if (this.messageCheckInterval) {
+                        clearInterval(this.messageCheckInterval);
+                        this.messageCheckInterval = null;
+                    }
                     this.renderChat();
                 }
             }
@@ -563,7 +576,7 @@
                     to: this.activePeer,
                     text: text.trim(),
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    id: Math.random()
+                    id: `${Date.now()}_${Math.random()}`
                 };
 
                 if (!this.conversations.has(this.activePeer)) {
@@ -577,9 +590,14 @@
                 } catch (e) {}
 
                 this.renderChat();
+            }
 
-                // Check for messages from peer
-                setTimeout(() => this.checkForMessages(), 100);
+            startMessagePolling() {
+                if (this.messageCheckInterval) {
+                    clearInterval(this.messageCheckInterval);
+                }
+                
+                this.messageCheckInterval = setInterval(() => this.checkForMessages(), 1000);
             }
 
             checkForMessages() {
@@ -588,24 +606,26 @@
                 try {
                     for (let key in localStorage) {
                         if (key.startsWith(`msg_${this.activePeer}_${this.peerId}_`)) {
-                            const message = JSON.parse(localStorage[key]);
-                            if (!this.conversations.has(this.activePeer)) {
-                                this.conversations.set(this.activePeer, { messages: [], connected: true });
-                            }
+                            try {
+                                const message = JSON.parse(localStorage[key]);
+                                if (!this.conversations.has(this.activePeer)) {
+                                    this.conversations.set(this.activePeer, { messages: [], connected: true });
+                                }
 
-                            const conv = this.conversations.get(this.activePeer);
-                            if (!conv.messages.find(m => m.id === message.id)) {
-                                conv.messages.push({ ...message, sent: false });
-                            }
+                                const conv = this.conversations.get(this.activePeer);
+                                if (!conv.messages.find(m => m.id === message.id)) {
+                                    conv.messages.push({ ...message, sent: false });
+                                    this.renderChat();
+                                }
+                            } catch (e) {}
                         }
                     }
-                    this.renderChat();
                 } catch (e) {}
             }
 
             updatePeerList() {
                 const list = document.getElementById('peerList');
-                const onlinePeers = Array.from(this.peers.entries()).filter(([_, data]) => Date.now() - data.lastSeen < 8000);
+                const onlinePeers = Array.from(this.peers.entries()).filter(([_, data]) => Date.now() - data.lastSeen < 12000);
 
                 if (onlinePeers.length === 0) {
                     list.innerHTML = '<div class="peer-list-empty">No peers online</div>';
@@ -627,7 +647,6 @@
                     `;
                 }).join('');
 
-                // Add CSS for active peer if not already present
                 if (!document.getElementById('activePeerStyle')) {
                     const style = document.createElement('style');
                     style.id = 'activePeerStyle';
@@ -671,13 +690,14 @@
                 }
 
                 const messages = this.conversations.get(this.activePeer)?.messages || [];
+                const msgInput = document.getElementById('msgInput')?.value || '';
 
                 chatView.innerHTML = `
                     <div class="chat-header">
                         <div class="chat-title">Chatting with ${this.activePeer.substr(0, 10)}</div>
                         <button class="disconnect-btn" onclick="p2p.disconnect()">Disconnect</button>
                     </div>
-                    <div class="messages scrollbar">
+                    <div class="messages">
                         ${messages.length === 0 ? '<div style="text-align: center; color: #64748b; margin-top: 40px;">No messages yet</div>' : messages.map(msg => `
                             <div class="message ${msg.sent ? 'sent' : 'received'}">
                                 <div class="message-content">
@@ -688,29 +708,27 @@
                         `).join('')}
                     </div>
                     <div class="chat-input-area">
-                        <textarea id="msgInput" placeholder="Type a message..." onkeypress="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); p2p.sendMessage(document.getElementById('msgInput').value); document.getElementById('msgInput').value = ''; }"></textarea>
-                        <button class="send-btn" onclick="p2p.sendMessage(document.getElementById('msgInput').value); document.getElementById('msgInput').value = '';"><span>→</span></button>
+                        <textarea id="msgInput" placeholder="Type a message..." onkeypress="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); p2p.sendMessage(document.getElementById('msgInput').value); document.getElementById('msgInput').value = ''; document.getElementById('msgInput').focus(); }">${this.escapeHtml(msgInput)}</textarea>
+                        <button class="send-btn" onclick="p2p.sendMessage(document.getElementById('msgInput').value); document.getElementById('msgInput').value = ''; document.getElementById('msgInput').focus();"><span>→</span></button>
                     </div>
                 `;
 
                 setTimeout(() => {
                     const messagesDiv = chatView.querySelector('.messages');
                     if (messagesDiv) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    const input = document.getElementById('msgInput');
+                    if (input) input.focus();
                 }, 0);
-
-                // Start checking for new messages
-                setInterval(() => this.checkForMessages(), 500);
             }
 
             setupUI() {
                 this.renderChat();
-                setInterval(() => this.checkForMessages(), 1000);
             }
 
             cleanup() {
                 const now = Date.now();
                 for (let [peerId, data] of this.peers.entries()) {
-                    if (now - data.lastSeen > 8000) {
+                    if (now - data.lastSeen > 15000) {
                         this.peers.delete(peerId);
                     }
                 }
