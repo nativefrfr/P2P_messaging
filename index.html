@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>P2P Messaging</title>
+    <title>P2P Messaging - WebRTC</title>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -453,6 +454,28 @@
             height: 100%;
         }
 
+        .status-indicator {
+            font-size: 12px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+        }
+
+        .status-indicator.connecting {
+            background: #f59e0b;
+            color: #78350f;
+        }
+
+        .status-indicator.connected {
+            background: #10b981;
+            color: #064e3b;
+        }
+
+        .status-indicator.error {
+            background: #ef4444;
+            color: #7f1d1d;
+        }
+
         @media (max-width: 768px) {
             .container {
                 grid-template-columns: 1fr;
@@ -482,6 +505,10 @@
             <div class="header">P2P Chat</div>
 
             <div class="section">
+                <div id="statusIndicator" class="status-indicator connecting">🔄 Connecting...</div>
+            </div>
+
+            <div class="section">
                 <div class="section-title">Your Username</div>
                 <div id="usernameSection" class="username-display">
                     <span id="usernameDisplay">Anonymous</span>
@@ -496,7 +523,7 @@
             <div class="section">
                 <div class="section-title">Your ID</div>
                 <div class="your-id">
-                    <span id="yourId">Generating...</span>
+                    <span id="yourId">Loading...</span>
                     <button class="copy-btn" onclick="copyToClipboard()">Copy</button>
                 </div>
             </div>
@@ -525,32 +552,78 @@
     <script>
         class P2PMessaging {
             constructor() {
-                this.peerId = this.generatePeerId();
+                this.peerId = null;
+                this.peer = null;
                 this.username = localStorage.getItem('p2p_username') || 'Anonymous';
+                this.connections = new Map();
                 this.peers = new Map();
                 this.conversations = new Map();
-                this.connectionRequests = new Map();
                 this.activePeer = null;
-                this.lastMessageCheckTime = {};
                 this.messageCheckInterval = null;
                 
                 this.init();
             }
 
-            generatePeerId() {
-                return `p_${Math.random().toString(36).substr(2, 9)}`;
+            async init() {
+                try {
+                    this.peer = new Peer({
+                        config: {
+                            iceServers: [
+                                { urls: ['stun:stun.l.google.com:19302'] },
+                                { urls: ['stun:stun1.l.google.com:19302'] },
+                                { urls: ['stun:stun2.l.google.com:19302'] },
+                                { urls: ['stun:stun3.l.google.com:19302'] },
+                                { urls: ['stun:stun4.l.google.com:19302'] }
+                            ]
+                        }
+                    });
+
+                    this.peer.on('open', (id) => {
+                        this.peerId = id;
+                        document.getElementById('yourId').textContent = id;
+                        document.getElementById('usernameDisplay').textContent = this.username;
+                        document.getElementById('usernameInput').value = this.username;
+                        this.updateStatus('connected');
+                        this.broadcast();
+                        setInterval(() => this.broadcast(), 10000);
+                    });
+
+                    this.peer.on('connection', (conn) => {
+                        this.handleIncomingConnection(conn);
+                    });
+
+                    this.peer.on('error', (err) => {
+                        console.error('Peer error:', err);
+                        this.updateStatus('error');
+                    });
+                } catch (e) {
+                    console.error('Failed to initialize Peer:', e);
+                    this.updateStatus('error');
+                }
             }
 
-            init() {
-                document.getElementById('yourId').textContent = this.peerId;
-                document.getElementById('usernameDisplay').textContent = this.username;
-                document.getElementById('usernameInput').value = this.username;
-                
-                this.broadcast();
-                setInterval(() => this.broadcast(), 5000);
-                setInterval(() => this.scanForPeers(), 3000);
-                setInterval(() => this.cleanup(), 8000);
-                this.setupUI();
+            updateStatus(status) {
+                const indicator = document.getElementById('statusIndicator');
+                if (status === 'connected') {
+                    indicator.textContent = '✓ Connected';
+                    indicator.className = 'status-indicator connected';
+                } else if (status === 'connecting') {
+                    indicator.textContent = '🔄 Connecting...';
+                    indicator.className = 'status-indicator connecting';
+                } else if (status === 'error') {
+                    indicator.textContent = '✗ Connection Error';
+                    indicator.className = 'status-indicator error';
+                }
+            }
+
+            broadcast() {
+                try {
+                    localStorage.setItem(`peer_broadcast_${this.peerId}`, JSON.stringify({
+                        id: this.peerId,
+                        username: this.username,
+                        timestamp: Date.now()
+                    }));
+                } catch (e) {}
             }
 
             toggleUsernameEdit() {
@@ -581,213 +654,198 @@
                 
                 this.toggleUsernameEdit();
                 this.broadcast();
+                
+                // Notify all connected peers of username change
+                this.connections.forEach(conn => {
+                    try {
+                        conn.send({ type: 'username_update', username: this.username });
+                    } catch (e) {}
+                });
             }
 
-            broadcast() {
-                try {
-                    localStorage.setItem(`peer_${this.peerId}`, JSON.stringify({
-                        id: this.peerId,
-                        username: this.username,
-                        timestamp: Date.now()
-                    }));
-                } catch (e) {}
+            connectToPeer(remotePeerId) {
+                if (this.activePeer === remotePeerId) return;
+                if (this.connections.has(remotePeerId)) return;
+
+                const conn = this.peer.connect(remotePeerId, { reliable: true });
+                this.handleOutgoingConnection(conn, remotePeerId);
             }
 
-            scanForPeers() {
-                try {
-                    for (let key in localStorage) {
-                        if (key.startsWith('peer_') && !key.includes('_to_')) {
-                            try {
-                                const data = JSON.parse(localStorage[key]);
-                                if (data.id && data.id !== this.peerId && !this.peers.has(data.id)) {
-                                    const age = Date.now() - data.timestamp;
-                                    if (age < 10000) { // Only add if less than 10 seconds old
-                                        this.peers.set(data.id, { 
-                                            lastSeen: Date.now(), 
-                                            active: true,
-                                            username: data.username || 'Anonymous'
-                                        });
-                                        this.checkForConnectionRequest(data.id);
-                                    }
-                                }
-                            } catch (e) {}
-                        }
+            handleOutgoingConnection(conn, remotePeerId) {
+                conn.on('open', () => {
+                    conn.send({
+                        type: 'intro',
+                        peerId: this.peerId,
+                        username: this.username
+                    });
+
+                    this.connections.set(remotePeerId, conn);
+                    this.activatePeerConnection(remotePeerId);
+                });
+
+                conn.on('data', (data) => {
+                    this.handleMessage(data, remotePeerId);
+                });
+
+                conn.on('close', () => {
+                    this.connections.delete(remotePeerId);
+                    if (this.activePeer === remotePeerId) {
+                        this.activePeer = null;
+                        this.renderChat();
                     }
                     this.updatePeerList();
-                } catch (e) {}
+                });
+
+                conn.on('error', (err) => {
+                    console.error('Connection error:', err);
+                    this.connections.delete(remotePeerId);
+                });
             }
 
-            checkForConnectionRequest(peerId) {
-                try {
-                    const key = `request_${peerId}_to_${this.peerId}`;
-                    const request = localStorage.getItem(key);
-                    if (request && !this.connectionRequests.has(peerId)) {
-                        const data = JSON.parse(request);
-                        this.connectionRequests.set(peerId, data);
-                        this.updateRequests();
+            handleIncomingConnection(conn) {
+                conn.on('data', (data) => {
+                    if (data.type === 'intro') {
+                        const remotePeerId = data.peerId;
+                        this.connections.set(remotePeerId, conn);
+                        
+                        if (!this.peers.has(remotePeerId)) {
+                            this.peers.set(remotePeerId, {
+                                username: data.username || 'Anonymous',
+                                connected: true
+                            });
+                        }
+
+                        // Send acknowledgement
+                        conn.send({
+                            type: 'ack',
+                            username: this.username
+                        });
+
+                        this.updatePeerList();
+                    } else if (data.type === 'ack') {
+                        const remotePeerId = conn.peerConnection?.remoteDescription?.sdp ? 
+                            Object.keys(this.connections).find(k => this.connections.get(k) === conn) : null;
+                        if (remotePeerId && this.peers.has(remotePeerId)) {
+                            this.peers.get(remotePeerId).username = data.username || 'Anonymous';
+                            this.updatePeerList();
+                        }
+                    } else {
+                        this.handleMessage(data, conn.peer);
                     }
-                } catch (e) {}
+                });
+
+                conn.on('close', () => {
+                    const peerId = conn.peer;
+                    this.connections.delete(peerId);
+                    if (this.activePeer === peerId) {
+                        this.activePeer = null;
+                        this.renderChat();
+                    }
+                    this.updatePeerList();
+                });
             }
 
-            connectToPeer(peerId) {
-                try {
-                    localStorage.setItem(`request_${this.peerId}_to_${peerId}`, JSON.stringify({
-                        from: this.peerId,
-                        fromUsername: this.username,
-                        to: peerId,
-                        timestamp: Date.now(),
-                        status: 'pending'
-                    }));
+            handleMessage(data, remotePeerId) {
+                if (data.type === 'message') {
+                    if (!this.conversations.has(remotePeerId)) {
+                        this.conversations.set(remotePeerId, { messages: [] });
+                    }
 
-                    const checkInterval = setInterval(() => {
-                        try {
-                            const key = `accept_${peerId}_to_${this.peerId}`;
-                            const response = localStorage.getItem(key);
-                            if (response) {
-                                const data = JSON.parse(response);
-                                if (data.status === 'accepted') {
-                                    clearInterval(checkInterval);
-                                    this.activatePeerConnection(peerId, data.username);
-                                }
-                            }
-                        } catch (e) {}
-                    }, 200);
-
-                    setTimeout(() => clearInterval(checkInterval), 30000);
-                } catch (e) {}
-            }
-
-            allowConnection(peerId) {
-                try {
-                    const peerData = this.peers.get(peerId);
-                    const peerUsername = peerData ? peerData.username : 'Anonymous';
-                    
-                    localStorage.setItem(`accept_${this.peerId}_to_${peerId}`, JSON.stringify({
-                        from: this.peerId,
-                        username: this.username,
-                        to: peerId,
-                        status: 'accepted',
-                        timestamp: Date.now()
-                    }));
-
-                    this.connectionRequests.delete(peerId);
-                    this.activatePeerConnection(peerId, peerUsername);
-                    this.updateRequests();
-                } catch (e) {}
-            }
-
-            denyConnection(peerId) {
-                try {
-                    localStorage.removeItem(`request_${peerId}_to_${this.peerId}`);
-                    this.connectionRequests.delete(peerId);
-                    this.updateRequests();
-                } catch (e) {}
-            }
-
-            activatePeerConnection(peerId, peerUsername) {
-                if (!this.conversations.has(peerId)) {
-                    this.conversations.set(peerId, { 
-                        messages: [], 
-                        connected: true,
-                        peerUsername: peerUsername || 'Anonymous'
+                    const conv = this.conversations.get(remotePeerId);
+                    conv.messages.push({
+                        from: remotePeerId,
+                        fromUsername: data.username || 'Peer',
+                        text: data.text,
+                        timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        sent: false
                     });
-                    this.lastMessageCheckTime[peerId] = 0;
+
+                    if (this.activePeer === remotePeerId) {
+                        this.renderChat();
+                    }
+                } else if (data.type === 'username_update') {
+                    const peerData = this.peers.get(remotePeerId);
+                    if (peerData) {
+                        peerData.username = data.username;
+                        this.updatePeerList();
+                        if (this.activePeer === remotePeerId) {
+                            this.renderChat();
+                        }
+                    }
                 }
-                this.activePeer = peerId;
+            }
+
+            activatePeerConnection(remotePeerId) {
+                if (!this.conversations.has(remotePeerId)) {
+                    this.conversations.set(remotePeerId, { messages: [] });
+                }
+                this.activePeer = remotePeerId;
                 this.updatePeerList();
                 this.renderChat();
-                this.startMessagePolling();
-            }
-
-            disconnect() {
-                if (this.activePeer) {
-                    try {
-                        localStorage.removeItem(`connection_${this.peerId}_to_${this.activePeer}`);
-                        localStorage.removeItem(`connection_${this.activePeer}_to_${this.peerId}`);
-                    } catch (e) {}
-                    this.activePeer = null;
-                    if (this.messageCheckInterval) {
-                        clearInterval(this.messageCheckInterval);
-                        this.messageCheckInterval = null;
-                    }
-                    this.renderChat();
-                }
             }
 
             sendMessage(text) {
                 if (!this.activePeer || !text.trim()) return;
+                if (!this.connections.has(this.activePeer)) return;
 
                 const message = {
+                    type: 'message',
                     from: this.peerId,
-                    fromUsername: this.username,
-                    to: this.activePeer,
+                    username: this.username,
                     text: text.trim(),
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    id: `${Date.now()}_${Math.random()}`
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 };
 
                 if (!this.conversations.has(this.activePeer)) {
-                    this.conversations.set(this.activePeer, { messages: [], connected: true });
+                    this.conversations.set(this.activePeer, { messages: [] });
                 }
 
-                this.conversations.get(this.activePeer).messages.push({ ...message, sent: true });
+                this.conversations.get(this.activePeer).messages.push({
+                    from: this.peerId,
+                    fromUsername: this.username,
+                    text: text.trim(),
+                    timestamp: message.timestamp,
+                    sent: true
+                });
 
                 try {
-                    localStorage.setItem(`msg_${this.peerId}_${this.activePeer}_${message.id}`, JSON.stringify(message));
-                } catch (e) {}
+                    this.connections.get(this.activePeer).send(message);
+                } catch (e) {
+                    console.error('Failed to send message:', e);
+                }
 
                 this.renderChat();
             }
 
-            startMessagePolling() {
-                if (this.messageCheckInterval) {
-                    clearInterval(this.messageCheckInterval);
+            disconnect() {
+                if (this.activePeer && this.connections.has(this.activePeer)) {
+                    this.connections.get(this.activePeer).close();
+                    this.connections.delete(this.activePeer);
+                    this.activePeer = null;
+                    this.renderChat();
                 }
-                
-                this.messageCheckInterval = setInterval(() => this.checkForMessages(), 1000);
-            }
-
-            checkForMessages() {
-                if (!this.activePeer) return;
-
-                try {
-                    for (let key in localStorage) {
-                        if (key.startsWith(`msg_${this.activePeer}_${this.peerId}_`)) {
-                            try {
-                                const message = JSON.parse(localStorage[key]);
-                                if (!this.conversations.has(this.activePeer)) {
-                                    this.conversations.set(this.activePeer, { messages: [], connected: true });
-                                }
-
-                                const conv = this.conversations.get(this.activePeer);
-                                if (!conv.messages.find(m => m.id === message.id)) {
-                                    conv.messages.push({ ...message, sent: false });
-                                    this.renderChat();
-                                }
-                            } catch (e) {}
-                        }
-                    }
-                } catch (e) {}
             }
 
             updatePeerList() {
                 const list = document.getElementById('peerList');
-                const onlinePeers = Array.from(this.peers.entries()).filter(([_, data]) => Date.now() - data.lastSeen < 12000);
+                const connectedPeers = Array.from(this.connections.keys()).map(peerId => {
+                    const peerData = this.peers.get(peerId) || { username: 'Unknown', connected: true };
+                    return [peerId, peerData];
+                });
 
-                if (onlinePeers.length === 0) {
-                    list.innerHTML = '<div class="peer-list-empty">No peers online</div>';
+                if (connectedPeers.length === 0) {
+                    list.innerHTML = '<div class="peer-list-empty">No peers connected</div>';
                     return;
                 }
 
-                list.innerHTML = onlinePeers.map(([peerId, data]) => {
+                list.innerHTML = connectedPeers.map(([peerId, data]) => {
                     const isActive = this.activePeer === peerId;
-                    const isConnected = this.conversations.has(peerId) && this.conversations.get(peerId).connected;
                     
                     return `
-                        <div class="peer-item ${isActive ? 'peer-item-active' : ''}" onclick="p2p.connectToPeer('${peerId}')">
+                        <div class="peer-item ${isActive ? 'peer-item-active' : ''}" onclick="p2p.connectToPeer('${peerId}'); p2p.activatePeerConnection('${peerId}')">
                             <div class="peer-info">
-                                <div class="peer-name">${data.username || 'Anonymous'}</div>
-                                <div class="peer-status">${isConnected ? 'Connected' : 'Click to connect'}</div>
+                                <div class="peer-name">${this.escapeHtml(data.username)}</div>
+                                <div class="peer-status">Connected</div>
                             </div>
                             <div class="status-dot"></div>
                         </div>
@@ -807,27 +865,6 @@
                 }
             }
 
-            updateRequests() {
-                const section = document.getElementById('requestsSection');
-                const list = document.getElementById('requestsList');
-
-                if (this.connectionRequests.size === 0) {
-                    section.style.display = 'none';
-                    return;
-                }
-
-                section.style.display = 'block';
-                list.innerHTML = Array.from(this.connectionRequests.entries()).map(([peerId, data]) => `
-                    <div class="connection-request">
-                        <div class="request-text">${data.fromUsername || 'Anonymous'} is trying to connect</div>
-                        <div class="request-buttons">
-                            <button class="btn-allow" onclick="p2p.allowConnection('${peerId}')">Allow</button>
-                            <button class="btn-deny" onclick="p2p.denyConnection('${peerId}')">Deny</button>
-                        </div>
-                    </div>
-                `).join('');
-            }
-
             renderChat() {
                 const chatView = document.getElementById('chatView');
 
@@ -836,20 +873,20 @@
                     return;
                 }
 
-                const conv = this.conversations.get(this.activePeer);
-                const messages = conv?.messages || [];
-                const peerUsername = conv?.peerUsername || 'Anonymous';
+                const messages = this.conversations.get(this.activePeer)?.messages || [];
+                const peerData = this.peers.get(this.activePeer);
+                const peerUsername = peerData?.username || 'Peer';
                 const msgInput = document.getElementById('msgInput')?.value || '';
 
                 chatView.innerHTML = `
                     <div class="chat-header">
-                        <div class="chat-title">Chatting with ${peerUsername}</div>
+                        <div class="chat-title">Chatting with ${this.escapeHtml(peerUsername)}</div>
                         <button class="disconnect-btn" onclick="p2p.disconnect()">Disconnect</button>
                     </div>
                     <div class="messages">
                         ${messages.length === 0 ? '<div style="text-align: center; color: #64748b; margin-top: 40px;">No messages yet</div>' : messages.map(msg => `
                             <div class="message ${msg.sent ? 'sent' : 'received'}">
-                                <div class="message-sender">${msg.fromUsername || (msg.sent ? 'You' : 'Peer')}</div>
+                                <div class="message-sender">${this.escapeHtml(msg.fromUsername || (msg.sent ? 'You' : 'Peer'))}</div>
                                 <div class="message-content">
                                     <div class="message-bubble">${this.escapeHtml(msg.text)}</div>
                                     <div class="message-time">${msg.timestamp}</div>
@@ -869,20 +906,6 @@
                     const input = document.getElementById('msgInput');
                     if (input) input.focus();
                 }, 0);
-            }
-
-            setupUI() {
-                this.renderChat();
-            }
-
-            cleanup() {
-                const now = Date.now();
-                for (let [peerId, data] of this.peers.entries()) {
-                    if (now - data.lastSeen > 15000) {
-                        this.peers.delete(peerId);
-                    }
-                }
-                this.updatePeerList();
             }
 
             escapeHtml(text) {
