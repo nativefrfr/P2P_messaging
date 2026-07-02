@@ -88,6 +88,81 @@
             background: #2563eb;
         }
 
+        .username-edit {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .username-display {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 12px;
+            flex: 1;
+            font-size: 14px;
+            color: #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .username-display span {
+            flex: 1;
+        }
+
+        .edit-btn {
+            background: #64748b;
+            border: none;
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+
+        .edit-btn:hover {
+            background: #475569;
+        }
+
+        .username-input {
+            display: flex;
+            gap: 8px;
+        }
+
+        .username-input input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            color: #e2e8f0;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .username-input input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+
+        .username-input button {
+            background: #10b981;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .username-input button:hover {
+            background: #059669;
+        }
+
         .peer-list {
             display: flex;
             flex-direction: column;
@@ -297,6 +372,17 @@
             border-bottom-left-radius: 2px;
         }
 
+        .message-sender {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .message.sent .message-sender {
+            text-align: right;
+        }
+
         .message-time {
             font-size: 11px;
             color: #94a3b8;
@@ -396,6 +482,18 @@
             <div class="header">P2P Chat</div>
 
             <div class="section">
+                <div class="section-title">Your Username</div>
+                <div id="usernameSection" class="username-display">
+                    <span id="usernameDisplay">Anonymous</span>
+                    <button class="edit-btn" onclick="p2p.toggleUsernameEdit()">Edit</button>
+                </div>
+                <div id="usernameEditSection" class="username-input" style="display: none;">
+                    <input type="text" id="usernameInput" placeholder="Enter username" maxlength="20">
+                    <button onclick="p2p.saveUsername()">Save</button>
+                </div>
+            </div>
+
+            <div class="section">
                 <div class="section-title">Your ID</div>
                 <div class="your-id">
                     <span id="yourId">Generating...</span>
@@ -428,6 +526,7 @@
         class P2PMessaging {
             constructor() {
                 this.peerId = this.generatePeerId();
+                this.username = localStorage.getItem('p2p_username') || 'Anonymous';
                 this.peers = new Map();
                 this.conversations = new Map();
                 this.connectionRequests = new Map();
@@ -444,6 +543,9 @@
 
             init() {
                 document.getElementById('yourId').textContent = this.peerId;
+                document.getElementById('usernameDisplay').textContent = this.username;
+                document.getElementById('usernameInput').value = this.username;
+                
                 this.broadcast();
                 setInterval(() => this.broadcast(), 5000);
                 setInterval(() => this.scanForPeers(), 3000);
@@ -451,10 +553,41 @@
                 this.setupUI();
             }
 
+            toggleUsernameEdit() {
+                const section = document.getElementById('usernameSection');
+                const editSection = document.getElementById('usernameEditSection');
+                
+                if (editSection.style.display === 'none') {
+                    editSection.style.display = 'flex';
+                    section.style.display = 'none';
+                    document.getElementById('usernameInput').focus();
+                } else {
+                    editSection.style.display = 'none';
+                    section.style.display = 'flex';
+                }
+            }
+
+            saveUsername() {
+                const newUsername = document.getElementById('usernameInput').value.trim();
+                
+                if (!newUsername) {
+                    alert('Username cannot be empty');
+                    return;
+                }
+
+                this.username = newUsername;
+                localStorage.setItem('p2p_username', newUsername);
+                document.getElementById('usernameDisplay').textContent = this.username;
+                
+                this.toggleUsernameEdit();
+                this.broadcast();
+            }
+
             broadcast() {
                 try {
                     localStorage.setItem(`peer_${this.peerId}`, JSON.stringify({
                         id: this.peerId,
+                        username: this.username,
                         timestamp: Date.now()
                     }));
                 } catch (e) {}
@@ -469,7 +602,11 @@
                                 if (data.id && data.id !== this.peerId && !this.peers.has(data.id)) {
                                     const age = Date.now() - data.timestamp;
                                     if (age < 10000) { // Only add if less than 10 seconds old
-                                        this.peers.set(data.id, { lastSeen: Date.now(), active: true });
+                                        this.peers.set(data.id, { 
+                                            lastSeen: Date.now(), 
+                                            active: true,
+                                            username: data.username || 'Anonymous'
+                                        });
                                         this.checkForConnectionRequest(data.id);
                                     }
                                 }
@@ -496,6 +633,7 @@
                 try {
                     localStorage.setItem(`request_${this.peerId}_to_${peerId}`, JSON.stringify({
                         from: this.peerId,
+                        fromUsername: this.username,
                         to: peerId,
                         timestamp: Date.now(),
                         status: 'pending'
@@ -509,7 +647,7 @@
                                 const data = JSON.parse(response);
                                 if (data.status === 'accepted') {
                                     clearInterval(checkInterval);
-                                    this.activatePeerConnection(peerId);
+                                    this.activatePeerConnection(peerId, data.username);
                                 }
                             }
                         } catch (e) {}
@@ -521,15 +659,19 @@
 
             allowConnection(peerId) {
                 try {
+                    const peerData = this.peers.get(peerId);
+                    const peerUsername = peerData ? peerData.username : 'Anonymous';
+                    
                     localStorage.setItem(`accept_${this.peerId}_to_${peerId}`, JSON.stringify({
                         from: this.peerId,
+                        username: this.username,
                         to: peerId,
                         status: 'accepted',
                         timestamp: Date.now()
                     }));
 
                     this.connectionRequests.delete(peerId);
-                    this.activatePeerConnection(peerId);
+                    this.activatePeerConnection(peerId, peerUsername);
                     this.updateRequests();
                 } catch (e) {}
             }
@@ -542,9 +684,13 @@
                 } catch (e) {}
             }
 
-            activatePeerConnection(peerId) {
+            activatePeerConnection(peerId, peerUsername) {
                 if (!this.conversations.has(peerId)) {
-                    this.conversations.set(peerId, { messages: [], connected: true });
+                    this.conversations.set(peerId, { 
+                        messages: [], 
+                        connected: true,
+                        peerUsername: peerUsername || 'Anonymous'
+                    });
                     this.lastMessageCheckTime[peerId] = 0;
                 }
                 this.activePeer = peerId;
@@ -573,6 +719,7 @@
 
                 const message = {
                     from: this.peerId,
+                    fromUsername: this.username,
                     to: this.activePeer,
                     text: text.trim(),
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -639,7 +786,7 @@
                     return `
                         <div class="peer-item ${isActive ? 'peer-item-active' : ''}" onclick="p2p.connectToPeer('${peerId}')">
                             <div class="peer-info">
-                                <div class="peer-name">${peerId.substr(0, 10)}</div>
+                                <div class="peer-name">${data.username || 'Anonymous'}</div>
                                 <div class="peer-status">${isConnected ? 'Connected' : 'Click to connect'}</div>
                             </div>
                             <div class="status-dot"></div>
@@ -670,9 +817,9 @@
                 }
 
                 section.style.display = 'block';
-                list.innerHTML = Array.from(this.connectionRequests.entries()).map(([peerId]) => `
+                list.innerHTML = Array.from(this.connectionRequests.entries()).map(([peerId, data]) => `
                     <div class="connection-request">
-                        <div class="request-text">${peerId.substr(0, 10)} is trying to connect</div>
+                        <div class="request-text">${data.fromUsername || 'Anonymous'} is trying to connect</div>
                         <div class="request-buttons">
                             <button class="btn-allow" onclick="p2p.allowConnection('${peerId}')">Allow</button>
                             <button class="btn-deny" onclick="p2p.denyConnection('${peerId}')">Deny</button>
@@ -689,17 +836,20 @@
                     return;
                 }
 
-                const messages = this.conversations.get(this.activePeer)?.messages || [];
+                const conv = this.conversations.get(this.activePeer);
+                const messages = conv?.messages || [];
+                const peerUsername = conv?.peerUsername || 'Anonymous';
                 const msgInput = document.getElementById('msgInput')?.value || '';
 
                 chatView.innerHTML = `
                     <div class="chat-header">
-                        <div class="chat-title">Chatting with ${this.activePeer.substr(0, 10)}</div>
+                        <div class="chat-title">Chatting with ${peerUsername}</div>
                         <button class="disconnect-btn" onclick="p2p.disconnect()">Disconnect</button>
                     </div>
                     <div class="messages">
                         ${messages.length === 0 ? '<div style="text-align: center; color: #64748b; margin-top: 40px;">No messages yet</div>' : messages.map(msg => `
                             <div class="message ${msg.sent ? 'sent' : 'received'}">
+                                <div class="message-sender">${msg.fromUsername || (msg.sent ? 'You' : 'Peer')}</div>
                                 <div class="message-content">
                                     <div class="message-bubble">${this.escapeHtml(msg.text)}</div>
                                     <div class="message-time">${msg.timestamp}</div>
